@@ -1,10 +1,6 @@
-# WIP 
-
-The necessary cot_parser will be uploaded once fully tested
-
 # DragonSync-Meshtastic
 
-DragonSync-Meshtastic is a Python-based application designed to bridge data between multicast network messages and Meshtastic devices. It listens for Cursor-on-Target (CoT) messages transmitted via a multicast group, parses these messages, and relays them as JSON-formatted text to connected Meshtastic devices. This tool is particularly useful for integrating various data sources (such as system messages, drone telemetry, and electromagnetic spectrum alerts) into a single, robust communication system.
+DragonSync-Meshtastic is a Python-based application designed to bridge multicast network messages and Meshtastic devices. The application runs in duplex mode—listening for Cursor-on-Target (CoT) messages via a multicast group and relaying them as TAK packets (PLI and GeoChat) over a Meshtastic serial connection. FPV (First Person View) message processing has been removed from the main application and may be developed as a separate module in the future.
 
 ## Table of Contents
 
@@ -20,87 +16,93 @@ DragonSync-Meshtastic is a Python-based application designed to bridge data betw
 
 ## Overview
 
-DragonSync-Meshtastic serves as a middleware application that links multicast data streams to Meshtastic devices. This integration allows users to:
-
-- Receive real-time system and drone messages.
-- Support future expansion to include a variety of electromagnetic (EM) spectrum events.
-- Enhance situational awareness in applications like field operations, emergency services, and distributed sensor networks.
+DragonSync-Meshtastic acts as a middleware solution that integrates multicast CoT data into a unified communication stream for Meshtastic devices. The application:
+- Listens for multicast CoT messages containing system and drone telemetry.
+- Parses these messages and transmits them as compact TAK PLI packets (with additional GeoChat packets) via the Meshtastic serial interface.
+- **Note:** FPV functionality has been removed from the main module. A dedicated module for FPV message processing may be developed in the future.
 
 ## Features
 
-- **Multicast Listening:** Listens on a configurable multicast IP and port for CoT messages.
-- **Meshtastic Integration:** Relays parsed CoT messages to Meshtastic devices using their serial interface.
-- **Error Handling and Reconnection:** Automatically attempts to reconnect to the Meshtastic device if errors occur.
-- **Configurable Multicast Settings:** Users can specify the multicast group and port via command-line arguments, providing flexible network configuration.
-- **Extensible Design:** The code structure makes it easy to integrate additional data sources such as EM spectrum event alerts.
+- **Duplex Communication:**
+  - **Transmitting:**  
+    Receives CoT messages via UDP multicast, parses them, and sends TAK PLI packets (with throttled GeoChat packets) via the Meshtastic serial interface.
+- **Asynchronous Processing:**  
+  Uses asyncio to decouple message reception and periodic update flushing.
+- **Configurable Settings:**  
+  Command-line arguments allow you to specify:
+  - Meshtastic serial port.
+  - Multicast IP address and port.
+- **Extensible & Modular:**  
+  The clear, documented structure allows for future expansion, including the addition of a separate module to process incoming FPV messages.
 
 ## How It Works
 
 1. **Initialization:**  
-   The application starts by parsing command-line arguments for the serial port and multicast settings. If a serial device is provided, it establishes a connection to the Meshtastic device. Otherwise, it auto-detects the device.
+   The application parses command-line arguments for Meshtastic device settings and multicast configurations. It then initializes the Meshtastic interface (or auto-detects it).
 
-2. **Socket Setup:**  
-   A UDP multicast socket is created and bound to the specified multicast group and port. The application uses `INADDR_ANY` to join the multicast group on all available interfaces by default.
+2. **CoT Reception & Processing:**  
+   A UDP multicast socket listens for CoT messages. Incoming XML messages are parsed into dictionaries, categorized by type (e.g., "drone", "wardragon", "pilot", or "home") based on the UID prefix, and the most recent update for each unique transmitter (identified by a shortened callsign) is maintained.
 
-3. **Message Processing:**  
-   The listener receives data packets from the multicast network, decodes them, and uses a CoT parser to generate message dictionaries.
+3. **Message Transmission:**  
+   A periodic flusher task sends the latest update for each transmitter as a TAK PLI packet via the Meshtastic interface. For system (and optionally pilot/home) messages, an additional GeoChat packet carrying key telemetry details is sent in a throttled manner.
 
-4. **Data Relay:**  
-   Each parsed message is serialized into JSON and sent to the Meshtastic device. The application includes robust error handling to manage connection issues, including automatic reconnection attempts.
-
-5. **Extensibility:**  
-   While the current implementation focuses on system and drone messages, it is designed to be extended to incorporate additional alerts (e.g., EM spectrum events) as the project evolves.
+4. **Concurrency & Locking:**  
+   All tasks run concurrently in the asyncio event loop. An asyncio lock ensures that the Meshtastic interface is accessed in a thread-safe manner.
 
 ## Installation
 
 1. **Clone the Repository:**
 
-   ```bash
-   git clone https://github.com/alphafox02/DragonSync-Meshtastic.git
+   ~~~bash
+   git clone https://github.com/yourusername/DragonSync-Meshtastic.git
    cd DragonSync-Meshtastic
-   ```
+   ~~~
 
 2. **Install Dependencies:**
 
    Ensure you have Python 3 installed. Then, install the required packages:
 
-   ```bash
+   ~~~bash
    pip install -r requirements.txt
-   ```
+   ~~~
 
-   *Note: The requirements include packages such as `xmltodict` and any libraries needed by `meshtastic.serial_interface` and `cot_parser`.*
+   *Dependencies include modules such as `xmltodict` and libraries required by Meshtastic.*
 
 ## Usage
 
-Run the application from the command line:
+Run the application from the command line. For example:
 
-```bash
-./dragonsync_meshtastic.py --port /dev/ttyACM0 --mcast-ip 239.2.3.1 --mcast-port 6969
-```
+~~~bash
+./dragonsync_meshtastic.py --port /dev/ttyACM0 --mcast 239.2.3.1 --mcast-port 6969
+~~~
 
-- **--port:** Serial device to use (e.g., `/dev/ttyACM0`).
-- **--mcast-ip:** Multicast group IP address. Default is `239.2.3.1`.
-- **--mcast-port:** Multicast port number. Default is `6969`.
+**Command-line options:**
 
-If the serial device or multicast settings are not specified, the application will use auto-detection and default settings.
+- **--port:** Serial device for Meshtastic (e.g., `/dev/ttyACM0`).
+- **--mcast:** Multicast group IP address (default: `239.2.3.1`).
+- **--mcast-port:** Multicast port (default: `6969`).
+
+*FPV and ZMQ options have been removed from this module.*
 
 ## Configuration
 
-The application allows configuration via command-line arguments. This makes it flexible to adapt to various network environments and serial device settings without modifying the source code:
-
-- **Multicast Group:** Choose a multicast IP that suits your network setup.
-- **Multicast Port:** Specify a port to avoid conflicts with other applications.
+The application is fully configurable via command-line arguments, enabling you to:
+- Adjust multicast settings to match your network environment.
+- Specify the serial port for the Meshtastic device.
+- Set other parameters related to CoT message processing and ATAK packet construction.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for full details.
 
 ## Contributing
 
-Contributions are welcome! Please fork this repository and submit a pull request with your improvements. Ensure your changes adhere to PEP8 guidelines and include proper documentation.
+Contributions are welcome! Fork this repository, make your improvements, and submit a pull request. Please follow PEP8 guidelines and include proper documentation and tests with your code.
 
 ## Contact
 
-cemaxecuter.com
+For more information or inquiries, visit [cemaxecuter.com](https://www.cemaxecuter.com).
 
-*DragonSync_Meshtastic - Bridging the gap between multicast networks and Meshtastic devices to enhance situational awareness and real-time data integration.*
+---
+
+*DragonSync-Meshtastic – Bridging multicast networks with Meshtastic devices for real-time situational awareness.*
